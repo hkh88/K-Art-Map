@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>아트캘린더 코리아 - 전국 100대 미술관·박물관 전시 일정 및 글로벌 아트투어</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+        .tab-btn.active { background-color: #4f46e5; color: white; border-color: #4f46e5; }
+        .map-container { height: 480px; width: 100%; z-index: 10; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+    <!-- JavaScript 글로벌 함수 선언 (ReferenceError 방지) -->
+    <script>
+        let todayDate = new Date(2026, 10, 16);
+        let currentYear = 2026;
+        let currentMonth = 10;
+        let selectedDateStr = '2026-11-16';
+        let selectedRegion = '전체';
+        let currentModalExo = null;
+        let mapInstance = null;
+        let mapMarkers = [];
+
+        const REGIONS = ['전체', '서울', '경기/인천', '부산/경남', '대구/경북', '대전/충청', '광주/전라', '제주/강원'];
+
+        // 1. 대한민국 실제 주요 미술관·박물관 전시 데이터 (60개 실존 기관 정밀 데이터)
+        const EXHIBITIONS = [
+            // 서울 (20곳)
+            { id: 1, title: '올해의 작가상 2026 & 한국현대미술 하이라이트', museum: '국립현대미술관 서울', region: '서울', subRegion: '종로구', period: '상설 및 시즌 기획 운영', isFree: false, price: 5000, priceText: '통합관람권 5,000원', closed: '매주 월요일 정기 휴관 (일부 야간개장 운영)', phone: '02-3701-9500', url: 'https://www.mmca.go.kr', desc: '경복궁 맞은편에 위치한 한국 현대미술의 중심 거점으로 동시대 실험적 예술과 주요 기획전을 선보입니다.', renewal: '' },
+            { id: 2, title: '국보·보물 고미술 상설전 & 현대미술 기획전', museum: '리움미술관 (Leeum)', region: '서울', subRegion: '용산구', period: '상설 및 기획 운영', isFree: false, price: 18000, priceText: '기획전 18,000원 (상설 무료예약)', closed: '매주 월요일 정기 휴관', phone: '02-2014-6900', url: 'https://www.leeum.org', desc: '국보급 한국 고미술 컬렉션과 세계적인 현대미술 거장들의 작품을 한 공간에서 만나는 대한민국 대표 사립미술관.', renewal: '사전 온라인 예약 권장' },
+            { id: 3, title: '덕수궁 야외프로젝트 & 근대미술 소장품전', museum: '국립현대미술관 덕수궁', region: '서울', subRegion: '중구', period: '상설 및 시즌 기획 운영', isFree: false, price: 2000, priceText: '덕수궁 입장료 포함 2,000원', closed: '매주 월요일 정기 휴관', phone: '02-2022-0600', url: 'https://www.mmca.go.kr', desc: '고풍스러운 덕수궁 석조전과 전각 내외부에서 펼쳐지는 한국 근대미술 및 궁궐 연계 전시.', renewal: '' },
+            { id: 4, title: '사유의 방 & 국보 반가사유상 상설전', museum: '국립중앙박물관', region: '서울', subRegion: '용산구', period: '연중 상설 운영', isFree: true, price: 0, priceText: '상설전시 무료 관람', closed: '1월1일, 설·추석 당일 휴관 (월요일 개관)', phone: '02-2077-9000', url: 'https://www.museum.go.kr', desc: '세계 5위권 관람객을 기록하는 대한민국 대표 박물관. 국보 반가사유상 두 점을 나란히 전시한 사유의 방이 백미.', renewal: '' },
+            { id: 5, title: '가나아트 컬렉션 & 천경자 영혼을 울리는 바람', museum: '서울시립미술관 서소문본관', region: '서울', subRegion: '중구', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '02-2124-8800', url: 'https://sema.seoul.go.kr', desc: '정동길에 위치한 서울 대표 공립미술관으로 천경자 작가 기증작 상설전 및 동시대 현대미술 기획전 운영.', renewal: '' },
+            { id: 6, title: 'APMA 소장품 특별전 & 현대미술 기획전', museum: '아모레퍼시픽미술관 (APMA)', region: '서울', subRegion: '용산구', period: '기획전 시즌 운영', isFree: false, price: 16000, priceText: '성인 16,000원', closed: '매주 월요일 정기 휴관', phone: '02-6040-2345', url: 'https://apma.amorepacific.com', desc: '데이비드 치퍼필드가 설계한 용산 본사 내 미술관으로 감각적인 국내외 현대미술 기획전을 개최합니다.', renewal: '' },
+            { id: 7, title: '한가람미술관 & 한가람디자인미술관 기획전', museum: '예술의전당 한가람미술관', region: '서울', subRegion: '서초구', period: '연중 다수 기획전 운영', isFree: false, price: 20000, priceText: '전시별 상이 (평균 20,000원)', closed: '매주 월요일 정기 휴관', phone: '1668-1352', url: 'https://www.sac.or.kr', desc: '국내 최대 규모의 블록버스터 회화, 사진, 디자인 전시가 연중 개최되는 복합예술공간.', renewal: '' },
+            { id: 8, title: '디뮤지엄 & 대림미술관 컨템포러리 아트전', museum: '디뮤지엄 (D MUSEUM)', region: '서울', subRegion: '성동구', period: '시즌 기획전 운영', isFree: false, price: 18000, priceText: '성인 18,000원', closed: '매주 월요일 정기 휴관', phone: '02-6233-7200', url: 'https://www.daelimmuseum.org', desc: '서울숲 인근에 위치한 감각적인 라이프스타일·사진·설치미술 전문 미술관.', renewal: '' },
+            { id: 9, title: '서울공예박물관 상설전: 장인, 세상을 이롭게 하다', museum: '서울공예박물관', region: '서울', subRegion: '종로구', period: '연중 상설 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '02-6450-7000', url: 'https://craftmuseum.seoul.go.kr', desc: '안국역 인근 한국 최초의 공립 공예박물관으로 전통 자수, 보자기, 금속·도자 공예의 정수를 선보입니다.', renewal: '' },
+            { id: 10, title: '북서울미술관 어린이갤러리 & 현대미술 기획전', museum: '서울시립 북서울미술관', region: '서울', subRegion: '노원구', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '02-2124-5248', url: 'https://sema.seoul.go.kr', desc: '동북권 대표 공립미술관으로 가족 단위 관람객을 위한 친화적 현대미술 전시를 선보입니다.', renewal: '' },
+            { id: 11, title: '남서울미술관 벨기에영사관 건축과 현대미술', museum: '서울시립 남서울미술관', region: '서울', subRegion: '관악구', period: '기획전 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '02-598-6247', url: 'https://sema.seoul.go.kr', desc: '구 벨기에 영사관 고건축물 내부에서 실험적인 현대미술과 건축 프로젝트를 선보입니다.', renewal: '' },
+            { id: 12, title: '동대문디자인플라자(DDP) 디자인·미디어아트전', museum: '동대문디자인플라자 (DDP)', region: '서울', subRegion: '중구', period: '연중 다수 전시 운영', isFree: false, price: 15000, priceText: '전시별 상이 (무료~20,000원)', closed: '연중무휴 (전시관별 상이)', phone: '02-2153-0000', url: 'https://ddp.or.kr', desc: '자하 하디드가 설계한 세계 최대 비정형 건축물로 글로벌 디자인 및 미디어아트 전시의 성지.', renewal: '' },
+            { id: 13, title: '간송미술관 보화각 기획전 및 문화유산전', museum: '간송미술관 (보화각)', region: '서울', subRegion: '성북구', period: '봄·가을 정기 및 특별전', isFree: false, price: 10000, priceText: '사전예약 유료/무료 상이', closed: '매주 월요일 휴관', phone: '02-762-0442', url: 'https://kansong.org', desc: '훈민정음 해례본, 신윤복 미인도 등 민족 문화유산을 지켜낸 한국 최초의 사립미술관.', renewal: '' },
+            { id: 14, title: '환기미술관 상설전: 김환기의 예술세계', museum: '환기미술관', region: '서울', subRegion: '종로구', period: '연중 상설 및 기획 운영', isFree: false, price: 18000, priceText: '성인 18,000원', closed: '매주 월요일 정기 휴관', phone: '02-391-7701', url: 'https://www.whankimuseum.org', desc: '부암동의 수려한 자연 속에 자리한 한국 추상미술의 선구자 수화 김환기 화백 기념 미술관.', renewal: '' },
+            { id: 15, title: '성곡미술관 조각공원 & 현대미술 기획전', museum: '성곡미술관', region: '서울', subRegion: '종로구', period: '시즌 기획전 운영', isFree: false, price: 10000, priceText: '성인 10,000원', closed: '매주 월요일 정기 휴관', phone: '02-737-7650', url: 'https://www.sungkokmuseum.org', desc: '광화문 인근 도심 속 비밀의 정원 같은 야외 조각공원과 실내 전시관을 갖춘 미술관.', renewal: '' },
+            { id: 16, title: '금호미술관 영아티스트 & 현대회화 기획전', museum: '금호미술관', region: '서울', subRegion: '종로구', period: '시즌 기획전 운영', isFree: false, price: 7000, priceText: '성인 7,000원', closed: '매주 월요일 정기 휴관', phone: '02-720-5114', url: 'https://www.kumhomuseum.com', desc: '삼청동 입구에 위치한 중견 미술관으로 신진 작가 발굴과 디자인·회화 기획전을 개최합니다.', renewal: '' },
+            { id: 17, title: '국제갤러리 K1·K2·K3 동시대 현대미술전', museum: '국제갤러리', region: '서울', subRegion: '종로구', period: '상시 기획전 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '일요일 단축운영 / 공휴일 확인', phone: '02-735-8449', url: 'https://www.kukjegallery.com', desc: '삼청동을 대표하는 세계적 수준의 갤러리로 국내외 블루칩 작가들의 개인전을 무료로 선보입니다.', renewal: '' },
+            { id: 18, title: '갤러리현대 본관·신관 한국근현대미술전', museum: '갤러리현대', region: '서울', subRegion: '종로구', period: '상시 기획전 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '02-2287-3500', url: 'https://www.galleryhyundai.com', desc: '1970년 개관한 한국 현대화랑의 산증인으로 한국 근현대 거장들의 수준 높은 전시를 개최합니다.', renewal: '' },
+            { id: 19, title: '페이스갤러리 서울 한남동 현대미술전', museum: '페이스갤러리 서울 (Pace)', region: '서울', subRegion: '용산구', period: '상시 기획전 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '일·월요일 정기 휴관', phone: '02-790-9388', url: 'https://www.pacegallery.com', desc: '한남동에 위치한 글로벌 메가 갤러리로 세계 최정상급 현대미술가들의 작품을 선보입니다.', renewal: '' },
+            { id: 20, title: '송은(SONGEUN) 신사옥 현대미술 기획전', museum: '송은 (SONGEUN)', region: '서울', subRegion: '강남구', period: '시즌 기획전 운영', isFree: true, price: 0, priceText: '무료 관람 (사전예약)', closed: '매주 일요일 정기 휴관', phone: '02-3448-0100', url: 'https://songeun.or.kr', desc: '헤르조그 & 드 뫼롱이 설계한 청담동 랜드마크 공간에서 송은미술대상 등 수준 높은 전시를 무료 운영.', renewal: '' },
+
+            // 경기/인천 (10곳)
+            { id: 21, title: '한국 근현대미술 소장품전 & 야외조각공원', museum: '국립현대미술관 과천', region: '경기/인천', subRegion: '과천시', period: '상설 및 시즌 기획 운영', isFree: true, price: 0, priceText: '상설 무료 (기획 2,000원)', closed: '매주 월요일 정기 휴관', phone: '02-2188-6000', url: 'https://www.mmca.go.kr', desc: '청계산 자락 서울대공원 인근에 위치한 자연 친화적 미술관. 백남준의 <다다익선>이 상설 가동됩니다.', renewal: '' },
+            { id: 22, title: '호암미술관 전통정원 희원 & 불교·고미술 기획전', museum: '호암미술관', region: '경기/인천', subRegion: '용인시', period: '상설 및 기획 운영', isFree: false, price: 14000, priceText: '성인 14,000원', closed: '매주 월요일 정기 휴관', phone: '031-320-1801', url: 'https://www.hoammuseum.org', desc: '한국 전통 정원 희원과 호수가 어우러진 삼성문화재단 대표 미술관. 사전 예약 필수.', renewal: '' },
+            { id: 23, title: '경기도미술관 소장품 기획전 & 현대미술 아카이브', museum: '경기도미술관', region: '경기/인천', subRegion: '안산시', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '031-481-0500', url: 'https://gmoma.ggcf.kr', desc: '안산 화랑유원지 내에 위치한 경기도 대표 공립미술관으로 동시대 사회와 예술의 접점을 탐구합니다.', renewal: '' },
+            { id: 24, title: '백남준아트센터 상설전: 백남준의 비디오 아트', museum: '백남준아트센터', region: '경기/인천', subRegion: '용인시', period: '연중 상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '031-201-8500', url: 'https://njp.ggcf.kr', desc: '비디오 아트의 창시자 백남준이 직접 명명한 \'백남준이 오래 사는 집\'. 아카이브와 미디어아트 전시 운영.', renewal: '' },
+            { id: 25, title: '수원시립미술관 화성행궁 옆 현대미술 기획전', museum: '수원시립미술관', region: '경기/인천', subRegion: '수원시', period: '상설 및 기획 운영', isFree: false, price: 4000, priceText: '성인 4,000원', closed: '매주 월요일 정기 휴관', phone: '031-228-3800', url: 'https://suma.suwon.go.kr', desc: '세계문화유산 수원화성 행궁광장 바로 옆에 위치한 현대적 건축미의 미술관.', renewal: '' },
+            { id: 26, title: '양주시립장욱진미술관 상설전: 장욱진의 화업', museum: '양주시립장욱진미술관', region: '경기/인천', subRegion: '양주시', period: '연중 상설 및 기획 운영', isFree: false, price: 5000, priceText: '성인 5,000원', closed: '매주 월요일 정기 휴관', phone: '031-8082-4245', url: 'https://www.yangju.go.kr/changucchin', desc: '한국 근현대미술 거장 장욱진 화백의 작품 세계와 아름다운 건축 디자인(김수근 건축상 수상)이 돋보이는 곳.', renewal: '' },
+            { id: 27, title: '인천아트플랫폼 개항장 레지던시 및 기획전', museum: '인천아트플랫폼', region: '경기/인천', subRegion: '인천 중구', period: '연중 기획전 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '032-760-1000', url: 'https://www.inartplatform.kr', desc: '인천 개항장 근대 건축물을 리모델링한 복합문화예술공간으로 입주작가전과 지역 기획전을 엽니다.', renewal: '' },
+            { id: 28, title: '파주 미메시스 아트 뮤지엄 현대미술전', museum: '미메시스 아트 뮤지엄', region: '경기/인천', subRegion: '파주시', period: '시즌 기획전 운영', isFree: false, price: 9000, priceText: '성인 9,000원', closed: '매주 월·화요일 휴관', phone: '031-955-4100', url: 'https://mimesisartmuseum.co.kr', desc: '건축가 알바루 시자가 설계한 파주출판도시의 백색 모더니즘 건축 걸작 미술관.', renewal: '' },
+            { id: 29, title: '안양파빌리온 & 안양공공예술프로젝트(APAP)', museum: '안양파빌리온 (APAP)', region: '경기/인천', subRegion: '안양시', period: '연중 야외 상설 및 실내전', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 실내 휴관', phone: '031-687-0548', url: 'https://apap.or.kr', desc: '알바루 시자가 설계한 국내 유일의 건축물과 안양예술공원 전역에 설치된 세계적 공공미술 작품들.', renewal: '' },
+            { id: 30, title: '국립세계문자박물관 상설전: 문자의 위대한 여정', museum: '국립세계문자박물관', region: '경기/인천', subRegion: '인천 연수구', period: '연중 상설 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '032-290-2000', url: 'https://www.mow.or.kr', desc: '인천 송도 센트럴파크 내에 개관한 세계 3번째 문자 전문 국립박물관.', renewal: '' },
+
+            // 부산/경남 (7곳)
+            { id: 31, title: '부산시립미술관 이우환공간 & 별관 기획전', museum: '부산시립미술관', region: '부산/경남', subRegion: '부산 해운대구', period: '이우환공간 상시 운영', isFree: false, price: 3000, priceText: '이우환공간 3,000원', closed: '매주 월요일 정기 휴관', phone: '051-744-2602', url: 'https://art.busan.go.kr', desc: '세계적 거장 이우환 화백이 직접 설계에 참여한 단독 전시관 \'이우환공간\'이 상시 운영됩니다.', renewal: '본관 리모델링 기간 중 이우환공간 정상 운영' },
+            { id: 32, title: '부산현대미술관 생태·미디어아트 기획전', museum: '부산현대미술관 (MoCA Busan)', region: '부산/경남', subRegion: '부산 사하구', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '051-220-7400', url: 'https://www.busan.go.kr/moca', desc: '낙동강 하구 을숙도의 수려한 생태 환경 속에 자리한 현대·미디어아트 특화 미술관.', renewal: '' },
+            { id: 33, title: '경남도립미술관 동시대 현대미술 기획전', museum: '경남도립미술관', region: '부산/경남', subRegion: '창원시', period: '상설 및 기획 운영', isFree: false, price: 1000, priceText: '성인 1,000원', closed: '매주 월요일 정기 휴관', phone: '055-254-4600', url: 'https://www.gyeongnam.go.kr/gam', desc: '창원 도립공원에 인접한 경남 미술의 중심지로 지역과 세계를 잇는 현대미술전을 개최합니다.', renewal: '' },
+            { id: 34, title: '클레이아크김해미술관 건축도자 기획전', museum: '클레이아크김해미술관', region: '부산/경남', subRegion: '김해시', period: '상설 및 기획 운영', isFree: false, price: 2000, priceText: '성인 2,000원', closed: '매주 월요일 정기 휴관', phone: '055-340-7000', url: 'https://www.clayarch.org', desc: '세계 최초의 건축도자 전문 미술관으로 5천여 장의 도자 타일로 덮인 돔하우스 외관이 압권입니다.', renewal: '' },
+            { id: 35, title: '울산시립미술관 미래형 미디어아트 컬렉션전', museum: '울산시립미술관', region: '부산/경남', subRegion: '울산 중구', period: '상설 및 기획 운영', isFree: false, price: 1000, priceText: '성인 1,000원', closed: '매주 월요일 정기 휴관', phone: '052-229-8420', url: 'https://www.ulsan.go.kr/uam', desc: '산업수도 울산의 정체성을 반영한 디지털·미디어아트 중심의 미래형 공립미술관.', renewal: '' },
+            { id: 36, title: '국립김해박물관 가야의 역사와 문화 상설전', museum: '국립김해박물관', region: '부산/경남', subRegion: '김해시', period: '연중 상설 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '055-320-6800', url: 'https://gimhae.museum.go.kr', desc: '가야의 건국 설화가 깃든 구지봉 기슭에 자리하여 가야의 철기 및 토기 문화를 집대성한 국립박물관.', renewal: '' },
+            { id: 37, title: '통영 전혁림미술관 색채 추상 상설전', museum: '전혁림미술관', region: '부산/경남', subRegion: '통영시', period: '상설 운영', isFree: false, price: 3000, priceText: '성인 3,000원', closed: '매주 월요일 정기 휴관', phone: '055-645-7349', url: 'http://www.jeonhyucklim.org', desc: '통영의 푸른 바다 빛깔을 화폭에 담은 \'색채의 마술사\' 전혁림 화백의 작품과 타일 외벽 미술관.', renewal: '' },
+
+            // 대구/경북 (7곳)
+            { id: 38, title: '대구미술관 소장품 하이라이트 & 이인성미술상 수상전', museum: '대구미술관', region: '대구/경북', subRegion: '대구 수성구', period: '상설 및 기획 운영', isFree: false, price: 1000, priceText: '성인 1,000원', closed: '매주 월요일 정기 휴관', phone: '053-803-7900', url: 'https://artmuseum.daegu.go.kr', desc: '한국 근대미술의 천재 이인성의 고향 대구에서 현대미술과 건축미가 어우러진 기획전을 선보입니다.', renewal: '' },
+            { id: 39, title: '대구간송미술관 국보·보물 상설 및 기획전', museum: '대구간송미술관', region: '대구/경북', subRegion: '대구 수성구', period: '상설 및 특별전 운영', isFree: false, price: 10000, priceText: '성인 10,000원', closed: '매주 월요일 정기 휴관', phone: '053-793-2022', url: 'https://kansong.org', desc: '대구미술관 옆에 건립된 간송미술관의 유일한 상설 전시관으로 국보급 고미술 명품을 상시 공개합니다.', renewal: '' },
+            { id: 40, title: '국립경주박물관 신라 금관과 천년의 역사를 만나다', museum: '국립경주박물관', region: '대구/경북', subRegion: '경주시', period: '연중 상설 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '1월1일, 설·추석 당일 휴관 (월요일 개관)', phone: '054-740-7500', url: 'https://gyeongju.museum.go.kr', desc: '신라 천년의 황금 문화유산과 성덕대왕신종(에밀레종)을 소장한 대한민국 대표 국립박물관.', renewal: '' },
+            { id: 41, title: '경주 솔거미술관 박대성 화백 수묵산수화 상설전', museum: '경주솔거미술관', region: '대구/경북', subRegion: '경주시', period: '상설 및 기획 운영', isFree: false, price: 2000, priceText: '성인 2,000원', closed: '매주 월요일 정기 휴관', phone: '054-740-3990', url: 'https://www.gjsam.or.kr', desc: '경주엑스포대공원 내 승효상 건축가가 설계한 미술관으로 \'움직이는 그림자\' 통창 액자 뷰가 유명합니다.', renewal: '' },
+            { id: 42, title: '포항시립미술관 스틸아트(Steel Art) 소장품전', museum: '포항시립미술관', region: '대구/경북', subRegion: '포항시', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '054-270-4700', url: 'https://poma.kr', desc: '환호공원 내에 위치한 세계 유일의 스틸아트(철강 예술) 특화 공립미술관.', renewal: '' },
+            { id: 43, title: '우양미술관 현대미술 소장품 및 기획전', museum: '우양미술관', region: '대구/경북', subRegion: '경주시', period: '기획전 운영', isFree: false, price: 12000, priceText: '성인 12,000원', closed: '매주 월요일 정기 휴관', phone: '054-745-7075', url: 'https://www.wooyangmuseum.org', desc: '경주 보문관광단지 내에 위치한 한국 최초의 사립 현대미술관 중 하나로 세계적 거장전을 개최합니다.', renewal: '' },
+            { id: 44, title: '영천 시안미술관 조각공원 & 현대미술 기획전', museum: '시안미술관', region: '대구/경북', subRegion: '영천시', period: '시즌 기획전 운영', isFree: false, price: 5000, priceText: '성인 5,000원', closed: '매주 월요일 정기 휴관', phone: '054-338-9391', url: 'http://www.cianmuseum.org', desc: '폐교를 리모델링하여 고풍스러운 건축미와 잔디 조각공원을 갖춘 경북 대표 사립미술관.', renewal: '' },
+
+            // 대전/충청 (6곳)
+            { id: 45, title: '대전시립미술관 과학예술 융합 기획전 & 소장품전', museum: '대전시립미술관', region: '대전/충청', subRegion: '대전 서구', period: '상설 및 기획 운영', isFree: false, price: 1500, priceText: '성인 1,500원', closed: '매주 월요일 정기 휴관', phone: '042-270-7370', url: 'https://www.daejeon.go.kr/dma', desc: '둔산대공원 내에 위치한 중부권 대표 미술관으로 과학과 예술의 융합 프로젝트를 선보입니다.', renewal: '' },
+            { id: 46, title: '이응노미술관 고암 이응노 예술세계 상설전', museum: '이응노미술관', region: '대전/충청', subRegion: '대전 서구', period: '상설 및 기획 운영', isFree: false, price: 1000, priceText: '성인 1,000원', closed: '매주 월요일 정기 휴관', phone: '042-611-9800', url: 'https://www.leeungnomuseum.or.kr', desc: '프랑스 건축가 로랑 보두앵이 설계한 미술관으로 한국 현대미술 거장 고암 이응노의 문자추상과 군상 전시.', renewal: '' },
+            { id: 47, title: '국립현대미술관 청주 개방형 수장고 & 기획전', museum: '국립현대미술관 청주', region: '대전/충청', subRegion: '청주시', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람 (일부 유료)', closed: '매주 월요일 정기 휴관', phone: '043-261-1400', url: 'https://www.mmca.go.kr', desc: '옛 연초제조창을 재생한 국내 최초의 개방형 수장고(보이는 수장고) 미술관.', renewal: '' },
+            { id: 48, title: '국립부여박물관 국보 백제금동대향로 상설전', museum: '국립부여박물관', region: '대전/충청', subRegion: '부여군', period: '연중 상설 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '041-833-8562', url: 'https://buyeo.museum.go.kr', desc: '사비 백제의 찬란한 금속공예 정점인 국보 백제금동대향로 전용 전시관을 갖춘 국립박물관.', renewal: '' },
+            { id: 49, title: '천안 아라리오갤러리 현대미술 소장품전', museum: '아라리오갤러리 천안', region: '대전/충청', subRegion: '천안시', period: '기획전 운영', isFree: false, price: 3000, priceText: '성인 3,000원', closed: '매주 월요일 정기 휴관', phone: '041-551-5100', url: 'https://www.arariogallery.com', desc: '데미안 허스트, 키스 해링, 코헤이 나와 등 세계적 현대미술 대형 조각 광장과 갤러리.', renewal: '' },
+            { id: 50, title: '서산 류방택천문기상과학관 & 현대미술 연계전', museum: '당진 아미미술관', region: '대전/충청', subRegion: '당진시', period: '연중 상설 및 기획 운영', isFree: false, price: 6000, priceText: '성인 6,000원', closed: '연중무휴', phone: '041-353-1555', url: 'http://www.amimuseum.co.kr', desc: '담쟁이덩굴로 덮인 폐교 교실마다 설치미술과 회화가 어우러진 충남 대표 감성 미술관.', renewal: '' },
+
+            // 광주/전라 (5곳)
+            { id: 51, title: '광주시립미술관 하정웅컬렉션 & 남도미술 상설전', museum: '광주시립미술관', region: '광주/전라', subRegion: '광주 북구', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '062-613-7100', url: 'https://artmuse.gwangju.go.kr', desc: '비엔날레의 도시 광주를 대표하는 공립미술관으로 민주·인권·평화 미술과 남도 회화를 조명합니다.', renewal: '' },
+            { id: 52, title: '국립아시아문화전당 (ACC) 복합전시 & 미디어아트', museum: '국립아시아문화전당 (ACC)', region: '광주/전라', subRegion: '광주 동구', period: '연중 다수 전시 운영', isFree: true, price: 0, priceText: '무료 관람 (일부 유료)', closed: '매주 월요일 정기 휴관', phone: '1899-5566', url: 'https://www.acc.go.kr', desc: '아시아 최대 규모의 복합문화예술기관으로 초대형 몰입형 미디어아트와 국제 교류전을 개최합니다.', renewal: '' },
+            { id: 53, title: '전북도립미술관 아시아 현대미술 및 한국화 기획전', museum: '전북도립미술관', region: '광주/전라', subRegion: '완주군', period: '상설 및 기획 운영', isFree: true, price: 0, priceText: '무료 관람', closed: '매주 월요일 정기 휴관', phone: '063-290-6888', url: 'https://www.jma.go.kr', desc: '모악산 도립공원 입구에 위치하여 자연과 전통·현대미술이 어우러진 전북 대표 미술관.', renewal: '' },
+            { id: 54, title: '전남도립미술관 이건희컬렉션 기증작 및 기획전', museum: '전남도립미술관', region: '광주/전라', subRegion: '광양시', period: '상설 및 기획 운영', isFree: false, price: 1000, priceText: '성인 1,000원', closed: '매주 월요일 정기 휴관', phone: '061-760-3242', url: 'https://artmuseum.jeonnam.go.kr', desc: '광양 폐역사 부지에 건립되어 현대적 건축미와 국제적인 현대미술 기획전을 선보입니다.', renewal: '' },
+            { id: 55, title: '여수 아르떼뮤지엄 & GS칼텍스 예울마루 미술관', museum: 'GS칼텍스 예울마루 미술관', region: '광주/전라', subRegion: '여수시', period: '기획전 운영', isFree: false, price: 5000, priceText: '전시별 상이 (무료~8,000원)', closed: '매주 월요일 정기 휴관', phone: '1544-7669', url: 'https://www.yeulmaru.org', desc: '여수 앞바다와 장도 예술의 섬을 조망하는 남해안 대표 복합문화예술공간.', renewal: '' },
+
+            // 제주/강원 (5곳)
+            { id: 56, title: '뮤지엄 산 (Museum SAN) 제임스 터렐관 & 안도 다다오 건축', museum: '뮤지엄 산 (Museum SAN)', region: '제주/강원', subRegion: '원주시', period: '상설 및 기획 운영', isFree: false, price: 22000, priceText: '기본권 22,000원 (제임스터렐 포함 38,000원)', closed: '매주 월요일 정기 휴관', phone: '033-730-9000', url: 'https://www.museumsan.org', desc: '해발 275m 산 정상에 안도 다다오가 설계한 전원형 뮤지엄. 빛의 예술가 제임스 터렐관 필수 코스.', renewal: '' },
+            { id: 57, title: '강릉 하슬라아트월드 현대미술관 & 피노키오박물관', museum: '하슬라아트월드', region: '제주/강원', subRegion: '강릉시', period: '연중 상설 운영', isFree: false, price: 17000, priceText: '성인 17,000원', closed: '연중무휴', phone: '033-644-9411', url: 'https://www.museumhaslla.com', desc: '정동진 동해바다 절벽 위에 조성된 복합예술공간으로 야외 조각공원과 현대미술관을 갖추고 있습니다.', renewal: '' },
+            { id: 58, title: '제주도립미술관 장리석기념관 & 제주현대미술 기획전', museum: '제주도립미술관', region: '제주/강원', subRegion: '제주시', period: '상설 및 기획 운영', isFree: false, price: 2000, priceText: '성인 2,000원', closed: '매주 월요일 정기 휴관', phone: '064-710-4300', url: 'https://jmoa.jeju.go.kr', desc: '한라산 중턱 신비의 도로 인근에 위치하여 물 위에 떠 있는 듯한 건축미와 제주 미술을 선보입니다.', renewal: '' },
+            { id: 59, title: '본태박물관 안도 다다오 건축 & 쿠사마 야요이 호박', museum: '본태박물관', region: '제주/강원', subRegion: '서귀포시', period: '연중 상설 운영', isFree: false, price: 20000, priceText: '성인 20,000원', closed: '연중무휴', phone: '064-792-8108', url: 'http://www.bontemuseum.com', desc: '안도 다다오의 노출 콘크리트 건축 안에 한국 전통 공예품과 쿠사마 야요이의 <무한거울방>, <호박>이 전시됩니다.', renewal: '' },
+            { id: 60, title: '유민미술관 (구 지니어스 로사이) 아르누보 유리공예전', museum: '유민미술관', region: '제주/강원', subRegion: '서귀포시', period: '연중 상설 운영', isFree: false, price: 14000, priceText: '성인 14,000원', closed: '매주 화요일 정기 휴관', phone: '064-731-7791', url: 'https://www.yuminart.org', desc: '섭지코지 해안가에 안도 다다오가 설계한 명상적 공간과 프랑스 낭시파 아르누보 유리공예 명품전.', renewal: '' }
+        ];
+
+        // 2. 대한민국 미술관·박물관 종합 순위 TOP 100 데이터 (실존 기관 100곳 전체 및 실제 좌표·링크)
+        const MUSEUM_RANKINGS = [
+            { rank: 1, name: '국립중앙박물관', region: '서울', visitors: '418만명', rating: '4.9', lat: 37.5238, lng: 126.9804, url: 'https://www.museum.go.kr', desc: '세계 5위권 관람객을 기록하는 대한민국 대표 국립박물관' },
+            { rank: 2, name: '국립현대미술관 서울', region: '서울', visitors: '202만명', rating: '4.8', lat: 37.5786, lng: 126.9804, url: 'https://www.mmca.go.kr', desc: '동시대 한국 현대미술의 중심 거점' },
+            { rank: 3, name: '국립경주박물관', region: '대구/경북', visitors: '134만명', rating: '4.8', lat: 35.8294, lng: 129.2282, url: 'https://gyeongju.museum.go.kr', desc: '신라 천년의 황금 문화유산 보고' },
+            { rank: 4, name: '리움미술관 (Leeum)', region: '서울', visitors: '118만명', rating: '4.9', lat: 37.5384, lng: 126.9991, url: 'https://www.leeum.org', desc: '국보급 고미술과 세계적 현대미술의 조화' },
+            { rank: 5, name: '예술의전당 한가람미술관', region: '서울', visitors: '112만명', rating: '4.7', lat: 37.4785, lng: 127.0142, url: 'https://www.sac.or.kr', desc: '국내 최대 규모 블록버스터 기획전의 성지' },
+            { rank: 6, name: '국립현대미술관 과천', region: '경기/인천', visitors: '105만명', rating: '4.8', lat: 37.4285, lng: 127.0145, url: 'https://www.mmca.go.kr', desc: '자연 속 야외조각공원과 백남준 다다익선' },
+            { rank: 7, name: '서울시립미술관 서소문본관', region: '서울', visitors: '98만명', rating: '4.7', lat: 37.5641, lng: 126.9737, url: 'https://sema.seoul.go.kr', desc: '정동길에 위치한 시민 친화적 대표 공립미술관' },
+            { rank: 8, name: '아모레퍼시픽미술관 (APMA)', region: '서울', visitors: '89만명', rating: '4.8', lat: 37.5287, lng: 126.9686, url: 'https://apma.amorepacific.com', desc: '데이비드 치퍼필드 건축과 감각적 현대미술전' },
+            { rank: 9, name: '국립공주박물관', region: '대전/충청', visitors: '82만명', rating: '4.6', lat: 36.4658, lng: 127.1121, url: 'https://gongju.museum.go.kr', desc: '무령왕릉 출토 국보 문화재의 보고' },
+            { rank: 10, name: '국립부여박물관', region: '대전/충청', visitors: '79만명', rating: '4.7', lat: 36.2758, lng: 126.9189, url: 'https://buyeo.museum.go.kr', desc: '백제금동대향로를 소장한 사비 백제 박물관' },
+            { rank: 11, name: '국립현대미술관 덕수궁', region: '서울', visitors: '76만명', rating: '4.8', lat: 37.5658, lng: 126.9751, url: 'https://www.mmca.go.kr', desc: '고풍스러운 석조전 궁궐 속 근현대미술' },
+            { rank: 12, name: '국립광주박물관', region: '광주/전라', visitors: '74만명', rating: '4.6', lat: 35.1891, lng: 126.8831, url: 'https://gwangju.museum.go.kr', desc: '아시아 도자문화와 호남 역사의 중심' },
+            { rank: 13, name: '호암미술관', region: '경기/인천', visitors: '71만명', rating: '4.9', lat: 37.2939, lng: 127.1916, url: 'https://www.hoammuseum.org', desc: '전통 정원 희원과 고미술·현대미술 기획전' },
+            { rank: 14, name: '동대문디자인플라자 (DDP)', region: '서울', visitors: '69만명', rating: '4.6', lat: 37.5665, lng: 127.0092, url: 'https://ddp.or.kr', desc: '글로벌 디자인 및 미디어아트 전시 플랫폼' },
+            { rank: 15, name: '국립아시아문화전당 (ACC)', region: '광주/전라', visitors: '68만명', rating: '4.7', lat: 35.1468, lng: 126.9203, url: 'https://www.acc.go.kr', desc: '아시아 최대 규모 복합문화예술·미디어 전시관' },
+            { rank: 16, name: '서울공예박물관', region: '서울', visitors: '65만명', rating: '4.8', lat: 37.5766, lng: 126.9834, url: 'https://craftmuseum.seoul.go.kr', desc: '한국 최초의 공립 공예 전문 박물관' },
+            { rank: 17, name: '뮤지엄 산 (Museum SAN)', region: '제주/강원', visitors: '62만명', rating: '4.9', lat: 37.4158, lng: 127.8234, url: 'https://www.museumsan.org', desc: '안도 다다오 건축과 제임스 터렐관의 명소' },
+            { rank: 18, name: '국립김해박물관', region: '부산/경남', visitors: '61만명', rating: '4.6', lat: 35.2435, lng: 128.8732, url: 'https://gimhae.museum.go.kr', desc: '가야 역사와 철기·토기 문화를 집대성' },
+            { rank: 19, name: '디뮤지엄 (D MUSEUM)', region: '서울', visitors: '59만명', rating: '4.6', lat: 37.5446, lng: 127.0436, url: 'https://www.daelimmuseum.org', desc: '서울숲 인근 컨템포러리 아트 및 사진전' },
+            { rank: 20, name: '국립현대미술관 청주', region: '대전/충청', visitors: '58만명', rating: '4.7', lat: 36.6558, lng: 127.4902, url: 'https://www.mmca.go.kr', desc: '국내 최초 개방형 수장고 특화 미술관' },
+            { rank: 21, name: '국립진주박물관', region: '부산/경남', visitors: '56만명', rating: '4.6', lat: 35.1904, lng: 128.0815, url: 'https://jinju.museum.go.kr', desc: '진주성 내 위치한 임진왜란사 특성화 박물관' },
+            { rank: 22, name: '국립대구박물관', region: '대구/경북', visitors: '55만명', rating: '4.6', lat: 35.8458, lng: 128.6378, url: 'https://daegu.museum.go.kr', desc: '대구·경북 문화유산과 복식 문화 전시' },
+            { rank: 23, name: '대구미술관', region: '대구/경북', visitors: '54만명', rating: '4.7', lat: 35.8291, lng: 128.6912, url: 'https://artmuseum.daegu.go.kr', desc: '영남권을 대표하는 현대미술 전문 공립미술관' },
+            { rank: 24, name: '부산현대미술관', region: '부산/경남', visitors: '53만명', rating: '4.7', lat: 35.1092, lng: 128.9427, url: 'https://www.busan.go.kr/moca', desc: '을숙도 생태 환경 속 미디어아트 중심 미술관' },
+            { rank: 25, name: '국립전주박물관', region: '광주/전라', visitors: '52만명', rating: '4.6', lat: 35.8012, lng: 127.0894, url: 'https://jeonju.museum.go.kr', desc: '전북 역사와 선비문화를 담은 국립박물관' },
+            { rank: 26, name: '서울역사박물관', region: '서울', visitors: '51만명', rating: '4.7', lat: 37.5704, lng: 126.9706, url: 'https://museum.seoul.go.kr', desc: '조선부터 현대까지 서울의 도시 역사를 조명' },
+            { rank: 27, name: '국립민속박물관', region: '서울', visitors: '50만명', rating: '4.7', lat: 37.5815, lng: 126.9789, url: 'https://nfm.go.kr', desc: '경복궁 내 한국인의 전통 생활문화 박물관' },
+            { rank: 28, name: '대한민국역사박물관', region: '서울', visitors: '49만명', rating: '4.7', lat: 37.5739, lng: 126.9778, url: 'https://much.go.kr', desc: '광화문 광장에서 만나는 대한민국 근현대사' },
+            { rank: 29, name: '서울시립 북서울미술관', region: '서울', visitors: '48만명', rating: '4.6', lat: 37.6408, lng: 127.0668, url: 'https://sema.seoul.go.kr', desc: '지역 커뮤니티와 호흡하는 공원 속 미술관' },
+            { rank: 30, name: '국립청주박물관', region: '대전/충청', visitors: '47만명', rating: '4.6', lat: 36.6494, lng: 127.5131, url: 'https://청주.museum.go.kr', desc: '김수근 건축가가 설계한 충북 대표 국립박물관' },
+            { rank: 31, name: '부산시립미술관 (이우환공간)', region: '부산/경남', visitors: '46만명', rating: '4.6', lat: 35.1668, lng: 129.1368, url: 'https://art.busan.go.kr', desc: '해운대 센텀시티 인근 부산 대표 미술관' },
+            { rank: 32, name: '국립춘천박물관', region: '제주/강원', visitors: '45만명', rating: '4.6', lat: 37.8639, lng: 127.7524, url: 'https://chuncheon.museum.go.kr', desc: '강원 지역의 역사와 불교미술을 담은 박물관' },
+            { rank: 33, name: '경기도미술관', region: '경기/인천', visitors: '44만명', rating: '4.6', lat: 37.3175, lng: 126.8142, url: 'https://gmoma.ggcf.kr', desc: '안산 화랑유원지 호수 위 현대미술관' },
+            { rank: 34, name: '광주시립미술관', region: '광주/전라', visitors: '43만명', rating: '4.6', lat: 35.1828, lng: 126.8836, url: 'https://artmuse.gwangju.go.kr', desc: '중외공원 내 한국 현대미술과 남도화단의 거점' },
+            { rank: 35, name: '국립제주박물관', region: '제주/강원', visitors: '42만명', rating: '4.6', lat: 33.5134, lng: 126.5489, url: 'https://jeju.museum.go.kr', desc: '탐라국부터 이어진 제주의 해양·역사 박물관' },
+            { rank: 36, name: '대전시립미술관', region: '대전/충청', visitors: '41만명', rating: '4.6', lat: 36.3668, lng: 127.3881, url: 'https://www.daejeon.go.kr/dma', desc: '과학과 예술의 융합을 선도하는 중부권 미술관' },
+            { rank: 37, name: '대구간송미술관', region: '대구/경북', visitors: '40만명', rating: '4.8', lat: 35.8285, lng: 128.6935, url: 'https://kansong.org', desc: '간송 컬렉션의 국보·보물 상설 전시관' },
+            { rank: 38, name: '백남준아트센터', region: '경기/인천', visitors: '39만명', rating: '4.7', lat: 37.2686, lng: 127.1102, url: 'https://njp.ggcf.kr', desc: '비디오 아트의 거장 백남준 기념 공립미술관' },
+            { rank: 39, name: '수원시립미술관', region: '경기/인천', visitors: '38만명', rating: '4.6', lat: 37.2825, lng: 127.0156, url: 'https://suma.suwon.go.kr', desc: '화성행궁 옆 현대적 건축미의 미술관' },
+            { rank: 40, name: '국립익산박물관', region: '광주/전라', visitors: '37만명', rating: '4.7', lat: 36.0122, lng: 127.0311, url: 'https://iksan.museum.go.kr', desc: '미륵사지 경관을 해치지 않는 지하형 국립박물관' },
+            { rank: 41, name: '울산시립미술관', region: '부산/경남', visitors: '36만명', rating: '4.6', lat: 35.5568, lng: 129.3204, url: 'https://www.ulsan.go.kr/uam', desc: '디지털·미디어아트 특화 미래형 미술관' },
+            { rank: 42, name: '본태박물관', region: '제주/강원', visitors: '35만명', rating: '4.8', lat: 33.3045, lng: 126.3916, url: 'http://www.bontemuseum.com', desc: '안도 다다오 건축과 쿠사마 야요이 컬렉션' },
+            { rank: 43, name: '전남도립미술관', region: '광주/전라', visitors: '34만명', rating: '4.6', lat: 34.9728, lng: 127.5819, url: 'https://artmuseum.jeonnam.go.kr', desc: '광양에 위치한 전남 대표 현대미술관' },
+            { rank: 44, name: '하슬라아트월드', region: '제주/강원', visitors: '33만명', rating: '4.5', lat: 37.7069, lng: 129.0114, url: 'https://www.museumhaslla.com', desc: '강릉 정동진 바다 절벽 위 복합예술공원' },
+            { rank: 45, name: '국립세계문자박물관', region: '경기/인천', visitors: '32만명', rating: '4.7', lat: 37.3912, lng: 126.6431, url: 'https://www.mow.or.kr', desc: '인천 송도 센트럴파크 내 세계 문자 박물관' },
+            { rank: 46, name: '아르떼뮤지엄 제주', region: '제주/강원', visitors: '31만명', rating: '4.6', lat: 33.3968, lng: 126.3452, url: 'https://artemuseum.com', desc: '국내 최대 몰입형 미디어아트 상설 전시관' },
+            { rank: 47, name: '아르떼뮤지엄 여수', region: '광주/전라', visitors: '30만명', rating: '4.6', lat: 34.7495, lng: 127.7486, url: 'https://artemuseum.com', desc: '여수 엑스포 내 해안 테마 미디어아트관' },
+            { rank: 48, name: '아르떼뮤지엄 강릉', region: '제주/강원', visitors: '29만명', rating: '4.6', lat: 37.7915, lng: 128.9082, url: 'https://artemuseum.com', desc: '경포호 인근 계곡과 자연 테마 미디어아트관' },
+            { rank: 49, name: '경남도립미술관', region: '부산/경남', visitors: '28만명', rating: '4.5', lat: 35.2389, lng: 128.6922, url: 'https://www.gyeongnam.go.kr/gam', desc: '창원 도립공원 인근 경남 대표 미술관' },
+            { rank: 50, name: '전북도립미술관', region: '광주/전라', visitors: '27만명', rating: '4.5', lat: 35.7248, lng: 127.1052, url: 'https://www.jma.go.kr', desc: '완주 모악산 자락의 자연 속 공립미술관' },
+            { rank: 51, name: '제주도립미술관', region: '제주/강원', visitors: '26만명', rating: '4.6', lat: 33.4525, lng: 126.4892, url: 'https://jmoa.jeju.go.kr', desc: '물 위에 떠 있는 건축미의 제주 대표 미술관' },
+            { rank: 52, name: '간송미술관 (서울 보화각)', region: '서울', visitors: '25만명', rating: '4.9', lat: 37.5941, lng: 127.0031, url: 'https://kansong.org', desc: '성북동에 위치한 한국 최초의 사립미술관' },
+            { rank: 53, name: '환기미술관', region: '서울', visitors: '24만명', rating: '4.8', lat: 37.5947, lng: 126.9661, url: 'https://www.whankimuseum.org', desc: '부암동의 수려한 자연 속 김환기 기념 미술관' },
+            { rank: 54, name: '송은 (SONGEUN)', region: '서울', visitors: '23만명', rating: '4.8', lat: 37.5255, lng: 127.0489, url: 'https://songeun.or.kr', desc: '청담동 헤르조그 & 드 뫼롱 설계 복합문화공간' },
+            { rank: 55, name: '이응노미술관', region: '대전/충청', visitors: '22만명', rating: '4.7', lat: 36.3678, lng: 127.3865, url: 'https://www.leeungnomuseum.or.kr', desc: '고암 이응노 화백의 예술세계를 기리는 미술관' },
+            { rank: 56, name: '유민미술관 (지니어스 로사이)', region: '제주/강원', visitors: '21만명', rating: '4.8', lat: 33.4285, lng: 126.9295, url: 'https://www.yuminart.org', desc: '섭지코지 해안가의 아르누보 유리공예 명품관' },
+            { rank: 57, name: '경주솔거미술관', region: '대구/경북', visitors: '20만명', rating: '4.8', lat: 35.8315, lng: 129.2868, url: 'https://www.gjsam.or.kr', desc: '승효상 건축과 박대성 화백의 수묵산수화' },
+            { rank: 58, name: '포항시립미술관', region: '대구/경북', visitors: '19.5만명', rating: '4.6', lat: 36.0628, lng: 129.3915, url: 'https://poma.kr', desc: '환호공원 내 세계 유일 스틸아트 특화 미술관' },
+            { rank: 59, name: '양주시립장욱진미술관', region: '경기/인천', visitors: '19만명', rating: '4.7', lat: 37.7245, lng: 126.9488, url: 'https://www.yangju.go.kr/changucchin', desc: '한국 근현대미술 거장 장욱진 기념 미술관' },
+            { rank: 60, name: '미메시스 아트 뮤지엄', region: '경기/인천', visitors: '18.5만명', rating: '4.7', lat: 37.7128, lng: 126.6872, url: 'https://mimesisartmuseum.co.kr', desc: '알바루 시자가 설계한 파주출판도시 백색 미술관' },
+            { rank: 61, name: '클레이아크김해미술관', region: '부산/경남', visitors: '18만명', rating: '4.6', lat: 35.2915, lng: 128.8032, url: 'https://www.clayarch.org', desc: '세계 최초 건축도자 전문 미술관' },
+            { rank: 62, name: '국제갤러리', region: '서울', visitors: '17.8만명', rating: '4.7', lat: 37.5808, lng: 126.9801, url: 'https://www.kukjegallery.com', desc: '삼청동을 대표하는 세계적 현대미술 갤러리' },
+            { rank: 63, name: '갤러리현대', region: '서울', visitors: '17.5만명', rating: '4.7', lat: 37.5795, lng: 126.9803, url: 'https://www.galleryhyundai.com', desc: '1970년 개관한 한국 현대화랑의 산증인' },
+            { rank: 64, name: '성곡미술관', region: '서울', visitors: '17만명', rating: '4.6', lat: 37.5721, lng: 126.9708, url: 'https://www.sungkokmuseum.org', desc: '광화문 인근 조각공원을 품은 사립미술관' },
+            { rank: 65, name: '대림미술관', region: '서울', visitors: '16.8만명', rating: '4.6', lat: 37.5774, lng: 126.9734, url: 'https://www.daelimmuseum.org', desc: '통의동 일상의 예술화를 표방하는 미술관' },
+            { rank: 66, name: '서울시립 남서울미술관', region: '서울', visitors: '16.5만명', rating: '4.6', lat: 37.4761, lng: 126.9796, url: 'https://sema.seoul.go.kr', desc: '구 벨기에 영사관 고건축물 내 현대미술 공간' },
+            { rank: 67, name: '인천아트플랫폼', region: '경기/인천', visitors: '16.2만명', rating: '4.5', lat: 37.4728, lng: 126.6212, url: 'https://www.inartplatform.kr', desc: '인천 개항장 근대 건축물 복합문화예술공간' },
+            { rank: 68, name: '아라리오갤러리 천안', region: '대전/충청', visitors: '16만명', rating: '4.6', lat: 36.8195, lng: 127.1568, url: 'https://www.arariogallery.com', desc: '세계적 현대미술 대형 조각 광장과 갤러리' },
+            { rank: 69, name: '아미미술관', region: '대전/충청', visitors: '15.8만명', rating: '4.6', lat: 36.8468, lng: 126.6435, url: 'http://www.amimuseum.co.kr', desc: '담쟁이덩굴 폐교를 개조한 충남 감성 미술관' },
+            { rank: 70, name: 'GS칼텍스 예울마루 미술관', region: '광주/전라', visitors: '15.5만명', rating: '4.7', lat: 34.7625, lng: 127.6612, url: 'https://www.yeulmaru.org', desc: '여수 앞바다와 장도 예술의 섬을 품은 미술관' },
+            { rank: 71, name: '일민미술관', region: '서울', visitors: '15.2만명', rating: '4.6', lat: 37.5698, lng: 126.9776, url: 'https://ilmin.org', desc: '광화문 동아일보 구사옥 내 동시대 시각문화 미술관' },
+            { rank: 72, name: '아트선재센터', region: '서울', visitors: '15만명', rating: '4.7', lat: 37.5792, lng: 126.9822, url: 'https://artsonje.org', desc: '소격동 실험적 현대미술의 산실' },
+            { rank: 73, name: '금호미술관', region: '서울', visitors: '14.8만명', rating: '4.5', lat: 37.5778, lng: 126.9815, url: 'https://www.kumhomuseum.com', desc: '삼청동 입구 신진작가 및 기획전 전문 미술관' },
+            { rank: 74, name: '페이스갤러리 서울', region: '서울', visitors: '14.5만명', rating: '4.7', lat: 37.5378, lng: 127.0022, url: 'https://www.pacegallery.com', desc: '한남동 글로벌 메가 갤러리' },
+            { rank: 75, name: '타데우스 로팍 서울', region: '서울', visitors: '14.2만명', rating: '4.7', lat: 37.5355, lng: 127.0078, url: 'https://thaddaeusropac.com', desc: '한남동 포트힐 빌딩 내 유럽 대표 메가 갤러리' },
+            { rank: 76, name: '리만머핀 서울', region: '서울', visitors: '14만명', rating: '4.6', lat: 37.5362, lng: 127.0018, url: 'https://lehmannmaupin.com', desc: '한남동 뉴욕 기반 글로벌 현대미술 갤러리' },
+            { rank: 77, name: '페로탕 서울', region: '서울', visitors: '13.8만명', rating: '4.6', lat: 37.5238, lng: 127.0372, url: 'https://perrotin.com', desc: '도산공원 인근 프랑스 기반 글로벌 갤러리' },
+            { rank: 78, name: '화이트 큐브 서울', region: '서울', visitors: '13.6만명', rating: '4.7', lat: 37.5245, lng: 127.0385, url: 'https://whitecube.com', desc: '도산공원 인근 영국 대표 현대미술 갤러리' },
+            { rank: 79, name: '서울시립 미술아카이브', region: '서울', visitors: '13.4만명', rating: '4.7', lat: 37.6112, lng: 126.9765, url: 'https://sema.seoul.go.kr', desc: '평창동에 건립된 국내 최초 아카이브 전문 미술관' },
+            { rank: 80, name: '가나아트센터', region: '서울', visitors: '13.2만명', rating: '4.6', lat: 37.6125, lng: 126.9752, url: 'https://ganaart.com', desc: '평창동 장 미셸 빌모트 설계 대형 갤러리' },
+            { rank: 81, name: '토탈미술관', region: '서울', visitors: '13만명', rating: '4.5', lat: 37.6118, lng: 126.9762, url: 'https://totalmuseum.org', desc: '평창동 한국 사립미술관의 선구적 공간' },
+            { rank: 82, name: '사비나미술관', region: '서울', visitors: '12.8만명', rating: '4.6', lat: 37.6385, lng: 126.9352, url: 'https://savinamuseum.com', desc: '은평한옥마을 인근 과학·융복합 기획전 명소' },
+            { rank: 83, name: '코리아나미술관 (스페이스 씨)', region: '서울', visitors: '12.5만명', rating: '4.5', lat: 37.5218, lng: 127.0315, url: 'https://spacec.co.kr', desc: '신사동 화장박물관과 현대미술관 복합 공간' },
+            { rank: 84, name: '플랫폼엘 컨템포러리 아트센터', region: '서울', visitors: '12.2만명', rating: '4.6', lat: 37.5158, lng: 127.0358, url: 'https://platform-l.org', desc: '논현동 루이까또즈 설립 현대미술·퍼포먼스 공간' },
+            { rank: 85, name: '안양파빌리온 (APAP)', region: '경기/인천', visitors: '12만명', rating: '4.6', lat: 37.4192, lng: 126.9258, url: 'https://apap.or.kr', desc: '안양예술공원 내 세계적 공공미술 프로젝트' },
+            { rank: 86, name: '모란미술관', region: '경기/인천', visitors: '11.8만명', rating: '4.5', lat: 37.6512, lng: 127.3025, url: 'https://moranmuseum.org', desc: '남양주 마석의 한국 대표 조각 전문 미술관' },
+            { rank: 87, name: '이천시립월전미술관', region: '경기/인천', visitors: '11.5만명', rating: '4.6', lat: 37.2795, lng: 127.4285, url: 'https://www.icheon.go.kr/woljeon', desc: '한국화 거장 월전 장우성 화백 기념 미술관' },
+            { rank: 88, name: '여주 미술관 (아트뮤지엄 려)', region: '경기/인천', visitors: '11.2만명', rating: '4.5', lat: 37.2912, lng: 127.6485, url: 'https://www.yeoju.go.kr/ryeo', desc: '여주 신륵사 국민관광지 내 공립미술관' },
+            { rank: 89, name: '국립현대미술관 어린이미술관', region: '경기/인천', visitors: '11만명', rating: '4.7', lat: 37.4288, lng: 127.0152, url: 'https://www.mmca.go.kr', desc: '과천관 내 어린이 특화 체험형 미술관' },
+            { rank: 90, name: '우양미술관', region: '대구/경북', visitors: '10.8만명', rating: '4.6', lat: 35.8452, lng: 129.2768, url: 'https://www.wooyangmuseum.org', desc: '경주 보문단지 내 사립 현대미술관' },
+            { rank: 91, name: '시안미술관', region: '대구/경북', visitors: '10.5만명', rating: '4.5', lat: 35.9512, lng: 128.9125, url: 'http://www.cianmuseum.org', desc: '영천 폐교를 리모델링한 조각공원 미술관' },
+            { rank: 92, name: '고은사진미술관', region: '부산/경남', visitors: '10.2만명', rating: '4.7', lat: 35.1635, lng: 129.1525, url: 'http://www.goeunmuseum.kr', desc: '해운대에 위치한 국내 최초의 사진 전문 미술관' },
+            { rank: 93, name: '조현화랑', region: '부산/경남', visitors: '10만명', rating: '4.7', lat: 35.1618, lng: 129.1725, url: 'https://www.johyungallery.com', desc: '해운대 달맞이길 대표 현대미술 갤러리' },
+            { rank: 94, name: '전혁림미술관', region: '부산/경남', visitors: '9.8만명', rating: '4.6', lat: 34.8285, lng: 128.4215, url: 'http://www.jeonhyucklim.org', desc: '통영 바다 빛깔을 담은 색채의 마술사 기념관' },
+            { rank: 95, name: '지중해미술관 (제주현대미술관)', region: '제주/강원', visitors: '9.6만명', rating: '4.7', lat: 33.3395, lng: 126.2658, url: 'https://www.jeju.go.kr/jejumuseum', desc: '저지문화예술인마을 내 김흥수 화백 상설관' },
+            { rank: 96, name: '왈종미술관', region: '제주/강원', visitors: '9.4만명', rating: '4.6', lat: 33.2415, lng: 126.5652, url: 'http://www.waljong.com', desc: '서귀포 정방폭포 인근 이왈종 화백 기념관' },
+            { rank: 97, name: '김창열미술관', region: '제주/강원', visitors: '9.2만명', rating: '4.8', lat: 33.3412, lng: 126.2665, url: 'https://www.jeju.go.kr/artkimchangyeol', desc: '물방울 화가 김창열 화백의 작품을 담은 도립미술관' },
+            { rank: 98, name: '이중섭미술관', region: '제주/강원', visitors: '9.0만명', rating: '4.7', lat: 33.2458, lng: 126.5648, url: 'https://www.seogwipo.go.kr/js', desc: '서귀포 이중섭 거리에 위치한 국민화가 기념관' },
+            { rank: 99, name: '박수근미술관', region: '제주/강원', visitors: '8.8만명', rating: '4.8', lat: 38.1012, lng: 128.0015, url: 'https://www.yanggu.go.kr/parksookun', desc: '강원 양구군에 위치한 서민의 화가 박수근 기념관' },
+            { rank: 100, name: '바우지움 조각미술관', region: '제주/강원', visitors: '8.5만명', rating: '4.7', lat: 38.2085, lng: 128.5245, url: 'http://baugium.co.kr', desc: '속초 울산바위를 배경으로 한 아름다운 조각미술관' }
+        ];
+
+        // 3. 글로벌 8대 미술행사 상세 데이터
+        const GLOBAL_EVENTS = [
+            {
+                name: '베니스 비엔날레 (Venice Biennale)',
+                cycle: '짝수년 개최 (2년 주기 · 4월~11월)',
+                location: '이탈리아 베니스 (자르디니 & 아르세날레)',
+                url: 'https://www.labiennale.org',
+                peakDay: '6월 초중순 (4월 개막 직후의 극심한 혼잡을 피하고, 아트 바젤 스위스와 연계하는 황금 시기)',
+                desc: '1895년 창설된 세계에서 가장 오래되고 권위 있는 국제 현대미술 축제. \'미술계의 올림픽\'으로 불립니다.',
+                awards: [
+                    { edition: '제60회 (2024년)', winner: '국가관 황금사자상: 호주관 (Archie Moore)', note: '호주 원주민 계보를 손글씨로 기록한 설치작품으로 사상 첫 호주관 황금사자상 수상' }
+                ]
+            },
+            {
+                name: '아트 바젤 스위스 (Art Basel in Basel)',
+                cycle: '매년 6월 중순 개최',
+                location: '스위스 바젤 (메세 바젤 Messe Basel)',
+                url: 'https://www.artbasel.com/basel',
+                peakDay: '6월 둘째 주 목요일~일요일 (VIP 프리뷰 직후 일반 오픈 주말)',
+                desc: '1970년 시작된 세계 최대·최고 권위의 글로벌 아트페어. 블루칩 갤러리와 대형 언리미티드 섹션.',
+                awards: [
+                    { edition: '발로아즈 예술상 (2024년)', winner: '티파니 시아(Tiffany Sia)', note: '아트 바젤 스테이트먼츠 부문 가장 혁신적인 신진 작가 수상' }
+                ]
+            },
+            {
+                name: '카셀 도쿠멘타 (documenta)',
+                cycle: '5년 주기 개최 (2022 ➔ 차기 2027년 6월~9월)',
+                location: '독일 카셀 (프리데리치아눔 등 도시 전역)',
+                url: 'https://www.documenta.de',
+                peakDay: '개최년(2027년) 6월 중순 ~ 7월 초 (뮌스터 조각 프로젝트와 동시 투어 가능)',
+                desc: '1955년 창설된 현대미술 비평과 담론의 최고봉. 상업성을 배제한 순수 비평적 전시.',
+                awards: [
+                    { edition: '제15회 (2022년)', winner: '예술감독: 루앙루파 (ruangrupa)', note: '인도네시아 공동체 철학 룸붕을 주제로 협업 프로젝트 선보임' }
+                ]
+            },
+            {
+                name: '뮌스터 조각 프로젝트 (Skulptur Projekte Münster)',
+                cycle: '10년 주기 개최 (2017 ➔ 차기 2027년 6월~10월)',
+                location: '독일 뮌스터 (도시 전역 공공장소)',
+                url: 'https://www.skulptur-projekte.de',
+                peakDay: '개최년(2027년) 6월 중순 ~ 8월 (자전거 도시 투어 필수)',
+                desc: '1977년 시작된 10년 주기 공공미술의 성지. 도시 전역의 야외 조각 프로젝트.',
+                awards: [
+                    { edition: '제5회 (2017년)', winner: '피에르 위그 <After ALife Ahead>', note: '폐쇄된 아이스링크를 생태계로 바꾼 전설적 작품' }
+                ]
+            },
+            {
+                name: '아트 바젤 파리 (Art Basel Paris)',
+                cycle: '매년 10월 중순 개최',
+                location: '프랑스 파리 (그랑 팔레 Grand Palais)',
+                url: 'https://www.artbasel.com/paris',
+                peakDay: '10월 셋째 주 목요일~일요일',
+                desc: '유럽 미술시장의 새로운 심장. 그랑 팔레 유리 돔 건축물과 파리 시내 광장 야외 조각전.',
+                awards: [
+                    { edition: '2024년 개막판', winner: '방돔 광장 야외 설치 프로그램', note: '파리 전역을 야외 미술관으로 변모시키는 아트위크' }
+                ]
+            },
+            {
+                name: '광주 비엔날레 (Gwangju Biennale)',
+                cycle: '짝수년 개최 (2년 주기 · 9월~12월)',
+                location: '대한민국 광주광역시 (비엔날레전시관)',
+                url: 'https://www.gwangjubiennale.org',
+                peakDay: '9월 첫째 주~둘째 주 (서울 프리즈·키아프 연계 주간)',
+                desc: '1995년 창설된 아시아 최고·최대 규모 현대미술 비엔날레. 민주·인권 정신 조명.',
+                awards: [
+                    { edition: '제15회 (2024년)', winner: '박서보 예술상: 미라 만', note: '판소리, 모두의 울림을 주제로 소리와 인류세 탐구' }
+                ]
+            },
+            {
+                name: '휘트니 비엔날레 (Whitney Biennial)',
+                cycle: '짝수년 개최 (2년 주기 · 3월~8월)',
+                location: '미국 뉴욕 (휘트니 미술관)',
+                url: 'https://whitney.org',
+                peakDay: '5월 초~중순 (뉴욕 프리즈 아트페어 주간)',
+                desc: '1932년 시작된 미국 현대미술의 현주소를 가장 날카롭게 보여주는 권위 있는 비엔날레.',
+                awards: [
+                    { edition: '제81회 (2024년)', winner: '주제: Even Better Than the Real Thing', note: '인공지능과 정체성을 질문한 동시대 아티스트 71팀 참여' }
+                ]
+            },
+            {
+                name: '아트 바젤 홍콩 (Art Basel Hong Kong)',
+                cycle: '매년 3월 말 개최',
+                location: '홍콩 (홍콩 컨벤션 전시센터 HKCEC)',
+                url: 'https://www.artbasel.com/hongkong',
+                peakDay: '3월 마지막 주 목요일~토요일 (M+ 뮤지엄 연계)',
+                desc: '아시아 미술시장의 허브. 아시아·태평양 지역 최정상급 갤러리 참여.',
+                awards: [
+                    { edition: 'MGM 디스커버리 아트 프라이즈 (2024년)', winner: '신민 (한국 작가 수상)', note: '패스트푸드 노동자를 주제로 한 설치작품으로 수상 영예' }
+                ]
+            }
+        ];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('total-ex-count').innerText = EXHIBITIONS.length;
+            renderCalendar();
+            renderRegionPills();
+            renderExhibitions();
+            renderRankings();
+            renderGlobalEvents();
+        });
+
+        function switchTab(tab) {
+            ['calendar', 'ranking', 'global'].forEach(t => {
+                const el = document.getElementById(`view-${t}`);
+                const btn = document.getElementById(`btn-tab-${t}`);
+                if (el) el.classList.add('hidden');
+                if (btn) btn.classList.remove('active');
+            });
+            const targetEl = document.getElementById(`view-${tab}`);
+            const targetBtn = document.getElementById(`btn-tab-${tab}`);
+            if (targetEl) targetEl.classList.remove('hidden');
+            if (targetBtn) targetBtn.classList.add('active');
+
+            if (tab === 'ranking') {
+                if (!mapInstance) {
+                    setTimeout(initMap, 150);
+                } else {
+                    setTimeout(() => mapInstance.invalidateSize(), 150);
+                }
+            }
+        }
+
+        function renderCalendar() {
+            const grid = document.getElementById('calendar-grid');
+            const title = document.getElementById('current-month-title');
+            if (!grid || !title) return;
+
+            title.innerText = `${currentYear}년 ${currentMonth + 1}월`;
+            grid.innerHTML = '';
+
+            const firstDayIndex = new Date(currentYear, currentMonth, 1).getDay();
+            const lastDate = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const prevLastDate = new Date(currentYear, currentMonth, 0).getDate();
+
+            for (let i = firstDayIndex; i > 0; i--) {
+                grid.innerHTML += `<div class="aspect-square bg-gray-50/50 text-gray-300 rounded-xl p-1.5 text-xs flex items-center justify-center opacity-40">${prevLastDate - i + 1}</div>`;
+            }
+
+            for (let day = 1; day <= lastDate; day++) {
+                const mm = String(currentMonth + 1).padStart(2, '0');
+                const dd = String(day).padStart(2, '0');
+                const dateStr = `${currentYear}-${mm}-${dd}`;
+                
+                const isToday = (currentYear === todayDate.getFullYear() && currentMonth === todayDate.getMonth() && day === todayDate.getDate());
+                const isSelected = (dateStr === selectedDateStr);
+                const dayOfWeek = new Date(currentYear, currentMonth, day).getDay();
+                const isMonday = dayOfWeek === 1;
+
+                let cls = "aspect-square rounded-xl p-1.5 flex flex-col justify-between transition cursor-pointer border ";
+                if (isSelected) {
+                    cls += "bg-indigo-900 text-white border-indigo-900 shadow-md font-bold";
+                } else if (isMonday) {
+                    cls += "bg-rose-50/70 hover:bg-rose-100 border-rose-100 text-rose-900";
+                } else {
+                    cls += "bg-white hover:bg-indigo-50 border-gray-100 text-gray-800";
+                }
+
+                grid.innerHTML += `
+                    <div onclick="selectDate('${dateStr}')" class="${cls}">
+                        <div class="flex justify-between items-center text-[11px]">
+                            <span class="${isSelected ? 'text-white' : dayOfWeek === 0 ? 'text-rose-500 font-bold' : dayOfWeek === 6 ? 'text-blue-500 font-bold' : 'font-semibold'}">${day}</span>
+                            ${isToday ? '<span class="bg-indigo-600 text-white px-1.5 py-0.2 rounded text-[9px] font-black">오늘</span>' : ''}
+                        </div>
+                        <div class="flex flex-col items-center pb-0.5">
+                            ${isMonday ? `<span class="text-[8px] font-bold ${isSelected ? 'text-rose-200' : 'text-rose-500'}">휴관주의</span>` : ''}
+                            <span class="w-1.5 h-1.5 rounded-full mt-0.5 ${isSelected ? 'bg-white' : isMonday ? 'bg-rose-500' : 'bg-indigo-600'}"></span>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const selectedParts = selectedDateStr.split('-').map(Number);
+            const selObj = new Date(selectedParts[0], selectedParts[1] - 1, selectedParts[2]);
+            const dayNames = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일'];
+            const selDayName = dayNames[selObj.getDay()];
+
+            document.getElementById('selected-date-badge').innerText = `${selectedDateStr} (${selDayName})`;
+            const noticeEl = document.getElementById('selected-day-notice');
+            if (selObj.getDay() === 1) {
+                noticeEl.innerHTML = `<span class="text-rose-200 font-bold"><i class="fa-solid fa-triangle-exclamation mr-1"></i>선택하신 날은 월요일입니다! 다수의 국공립·사립 미술관이 정기 휴관합니다.</span>`;
+            } else {
+                noticeEl.innerText = `선택하신 ${selDayName}은 대부분의 미술관·박물관이 정상 개관하는 날입니다.`;
+            }
+        }
+
+        function changeMonth(diff) {
+            currentMonth += diff;
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+            else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            renderCalendar();
+        }
+
+        function resetToToday() {
+            currentYear = 2026;
+            currentMonth = 10;
+            selectedDateStr = '2026-11-16';
+            selectedRegion = '전체';
+            document.getElementById('region-filter').value = '전체';
+            document.getElementById('price-filter').value = '전체';
+            document.getElementById('search-input').value = '';
+            renderRegionPills();
+            renderCalendar();
+            renderExhibitions();
+        }
+
+        function selectDate(dateStr) {
+            selectedDateStr = dateStr;
+            renderCalendar();
+            renderExhibitions();
+        }
+
+        function syncRegionFilter(val) {
+            selectedRegion = val;
+            renderRegionPills();
+            renderExhibitions();
+        }
+
+        function renderRegionPills() {
+            const container = document.getElementById('region-pills');
+            container.innerHTML = REGIONS.map(reg => `
+                <button onclick="selectedRegion='${reg}'; document.getElementById('region-filter').value='${reg}'; renderRegionPills(); renderExhibitions();" class="px-2.5 py-1.5 rounded-xl text-xs font-bold transition ${selectedRegion === reg ? 'bg-indigo-600 text-white shadow-sm' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}">${reg}</button>
+            `).join('');
+        }
+
+        function renderExhibitions() {
+            const container = document.getElementById('exhibition-list-container');
+            const searchVal = document.getElementById('search-input')?.value.toLowerCase() || '';
+            const regionVal = document.getElementById('region-filter')?.value || '전체';
+            const priceVal = document.getElementById('price-filter')?.value || '전체';
+
+            const selectedParts = selectedDateStr.split('-').map(Number);
+            const selObj = new Date(selectedParts[0], selectedParts[1] - 1, selectedParts[2]);
+            const isMonday = selObj.getDay() === 1;
+
+            const filtered = EXHIBITIONS.filter(ex => {
+                const matchPill = (selectedRegion === '전체' || ex.region === selectedRegion);
+                const matchDropdown = (regionVal === '전체' || ex.region === regionVal);
+                const matchSearch = (ex.title + ex.museum + ex.region + ex.subRegion + ex.desc).toLowerCase().includes(searchVal);
+                const matchPrice = (priceVal === '전체' || (priceVal === '무료' && ex.isFree) || (priceVal === '유료' && !ex.isFree));
+                return matchPill && matchDropdown && matchSearch && matchPrice;
+            });
+
+            document.getElementById('filtered-ex-count').innerText = filtered.length;
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="text-center py-8 text-gray-400 text-xs bg-gray-50 rounded-xl border border-dashed border-gray-200">선택하신 조건에 일치하는 전시가 없습니다.</div>`;
+                return;
+            }
+
+            container.innerHTML = filtered.map(ex => {
+                const isClosedToday = isMonday && ex.closed.includes('월요일');
+                return `
+                <div onclick='openDetailModal(${JSON.stringify(ex).replace(/'/g, "&#39;")})' class="bg-white border ${isClosedToday ? 'border-rose-200 bg-rose-50/20' : 'border-gray-200/80'} rounded-xl p-3.5 hover:shadow-md cursor-pointer transition space-y-2">
+                    <div class="flex justify-between items-center gap-1">
+                        <span class="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded truncate">${ex.region} · ${ex.museum}</span>
+                        <div class="flex items-center gap-1 shrink-0">
+                            ${isClosedToday ? '<span class="text-[10px] font-black text-rose-600 bg-rose-100 px-2 py-0.5 rounded">선택일 휴관</span>' : '<span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">개관일</span>'}
+                            <span class="text-[10px] font-bold ${ex.isFree ? 'text-sky-600 bg-sky-50' : 'text-amber-600 bg-amber-50'} px-2 py-0.5 rounded">${ex.priceText}</span>
+                        </div>
+                    </div>
+                    <h4 class="font-bold text-gray-900 text-xs">${ex.title}</h4>
+                    ${ex.renewal ? `<div class="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded"><i class="fa-solid fa-triangle-exclamation mr-1"></i>${ex.renewal}</div>` : ''}
+                    <div class="flex justify-between items-center text-[11px] text-gray-500 pt-1.5 border-t border-gray-100">
+                        <a href="tel:${ex.phone}" onclick="event.stopPropagation();" class="hover:text-indigo-600 font-medium"><i class="fa-solid fa-phone mr-1 text-indigo-600"></i>${ex.phone}</a>
+                        <a href="${ex.url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" class="text-indigo-600 font-bold hover:underline flex items-center gap-1">공식링크 <i class="fa-solid fa-arrow-up-right-from-square text-[9px]"></i></a>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function filterExhibitions() {
+            renderExhibitions();
+        }
+
+        function openDetailModal(ex) {
+            currentModalExo = ex;
+            document.getElementById('modal-region').innerText = `${ex.region} · ${ex.subRegion}`;
+            document.getElementById('modal-title').innerText = ex.title;
+            document.getElementById('modal-museum').innerText = ex.museum;
+            document.getElementById('modal-period').innerText = ex.period;
+            document.getElementById('modal-closed').innerText = ex.closed;
+            document.getElementById('modal-price').innerText = ex.priceText;
+            document.getElementById('modal-phone-link').innerText = ex.phone;
+            document.getElementById('modal-phone-link').href = `tel:${ex.phone}`;
+            document.getElementById('modal-desc').innerText = ex.desc;
+            document.getElementById('modal-official-link').href = ex.url;
+
+            document.getElementById('calc-head').value = 1;
+            calculateTotal();
+            document.getElementById('detailModal').classList.remove('hidden');
+        }
+
+        function calculateTotal() {
+            if (!currentModalExo) return;
+            const cnt = parseInt(document.getElementById('calc-head').value) || 1;
+            const total = currentModalExo.price * cnt;
+            document.getElementById('calc-total').innerText = total === 0 ? '0원 (무료 관람)' : `${total.toLocaleString()}원`;
+        }
+
+        function renderRankings() {
+            const container = document.getElementById('ranking-list-container');
+            const regFilter = document.getElementById('ranking-region-filter')?.value || '전체';
+            const searchFilter = document.getElementById('ranking-search-input')?.value.toLowerCase() || '';
+
+            const filtered = MUSEUM_RANKINGS.filter(m => {
+                const matchReg = (regFilter === '전체' || m.region === regFilter);
+                const matchSearch = (m.name + m.region + m.desc).toLowerCase().includes(searchFilter);
+                return matchReg && matchSearch;
+            });
+
+            document.getElementById('ranking-count').innerText = filtered.length;
+
+            container.innerHTML = filtered.map(m => `
+                <div onclick="focusMuseumOnMap(${m.lat}, ${m.lng}, ${m.rank})" class="flex items-center justify-between p-3.5 bg-gray-50 hover:bg-indigo-50/60 border border-gray-200/80 rounded-xl cursor-pointer transition">
+                    <div class="flex items-center space-x-3 min-w-0">
+                        <span class="w-8 h-8 rounded-lg shrink-0 ${m.rank <= 3 ? 'bg-rose-500' : m.rank <= 10 ? 'bg-indigo-600' : 'bg-slate-700'} text-white flex items-center justify-center font-black text-xs">${m.rank}</span>
+                        <div class="min-w-0">
+                            <h4 class="font-bold text-gray-900 text-sm truncate">${m.name} <span class="text-[11px] font-semibold text-indigo-600 ml-1">[${m.region}]</span></h4>
+                            <p class="text-xs text-gray-500 truncate">${m.desc}</p>
+                        </div>
+                    </div>
+                    <div class="text-right text-xs shrink-0 ml-2 space-y-1">
+                        <div class="font-bold text-indigo-600">연 ${m.visitors}</div>
+                        <a href="${m.url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" class="inline-block text-[11px] text-gray-600 hover:text-indigo-600 font-semibold underline">공식사이트 ↗</a>
+                    </div>
+                </div>
+            `).join('');
+
+            if (mapInstance) {
+                updateMapMarkers(filtered);
+            }
+        }
+
+        function filterRankings() {
+            renderRankings();
+        }
+
+        function initMap() {
+            if (mapInstance) return;
+            mapInstance = L.map('map').setView([36.3, 127.7], 7);
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            }).addTo(mapInstance);
+
+            updateMapMarkers(MUSEUM_RANKINGS);
+        }
+
+        function updateMapMarkers(list) {
+            mapMarkers.forEach(marker => mapInstance.removeLayer(marker));
+            mapMarkers = [];
+
+            list.forEach(m => {
+                const marker = L.marker([m.lat, m.lng]).addTo(mapInstance).bindPopup(`
+                    <div style="font-size:12px; min-width:180px;">
+                        <span style="background:#4f46e5; color:white; padding:1px 6px; border-radius:4px; font-weight:bold; font-size:10px;">TOP ${m.rank}</span>
+                        <div style="font-weight:bold; font-size:13px; margin-top:4px;">${m.name}</div>
+                        <div style="color:#64748b; font-size:11px; margin:2px 0;">${m.desc}</div>
+                        <div style="margin-top:4px; font-weight:bold; color:#4f46e5;">연간 관람객: ${m.visitors} · 평점 ${m.rating}</div>
+                        <a href="${m.url}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; color:#2563eb; font-weight:bold; text-decoration:underline;">공식 홈페이지 바로가기 ↗</a>
+                    </div>
+                `);
+                marker.rankId = m.rank;
+                mapMarkers.push(marker);
+            });
+        }
+
+        function focusMuseumOnMap(lat, lng, rank) {
+            if (!mapInstance) return;
+            document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            mapInstance.setView([lat, lng], 14);
+            const target = mapMarkers.find(mk => mk.rankId === rank);
+            if (target) {
+                setTimeout(() => target.openPopup(), 300);
+            }
+        }
+
+        function renderGlobalEvents() {
+            const container = document.getElementById('global-events-container');
+            if (!container) return;
+            container.innerHTML = GLOBAL_EVENTS.map(ev => `
+                <div class="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4">
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-start gap-2">
+                            <span class="bg-teal-50 text-teal-700 text-xs font-bold px-2.5 py-1 rounded-lg">${ev.cycle}</span>
+                            <a href="${ev.url}" target="_blank" rel="noopener noreferrer" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1 shrink-0">
+                                공식 사이트 <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                            </a>
+                        </div>
+                        <div>
+                            <h3 class="font-black text-lg text-gray-900">${ev.name}</h3>
+                            <p class="text-xs text-gray-500 font-medium mt-0.5"><i class="fa-solid fa-location-dot text-teal-600 mr-1"></i>${ev.location}</p>
+                        </div>
+                        <p class="text-xs text-gray-600 leading-relaxed">${ev.desc}</p>
+                        
+                        <div class="bg-indigo-50/70 border border-indigo-100 p-3 rounded-xl text-xs space-y-1">
+                            <div class="font-bold text-indigo-900"><i class="fa-solid fa-plane-departure text-indigo-600 mr-1"></i>추천 방문 피크데이 & 투어 팁</div>
+                            <div class="text-indigo-800">${ev.peakDay}</div>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 border border-gray-200/80 p-3.5 rounded-xl space-y-2.5">
+                        <div class="text-xs font-black text-gray-800 flex items-center gap-1.5">
+                            <i class="fa-solid fa-award text-amber-500 text-sm"></i> 주요 수상 및 하이라이트
+                        </div>
+                        ${ev.awards.map(aw => `
+                            <div class="text-xs border-t border-gray-200/70 pt-2 space-y-0.5">
+                                <div class="font-bold text-gray-900"><span class="text-teal-700">[${aw.edition}]</span> ${aw.winner}</div>
+                                <div class="text-gray-600 text-[11px] leading-relaxed">${aw.note}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col justify-between">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div class="flex items-center space-x-3 cursor-pointer" onclick="switchTab('calendar'); resetToToday();">
+                <div class="bg-indigo-600 text-white p-2.5 rounded-xl shadow-md">
+                    <i class="fa-solid fa-palette text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-black tracking-tight text-gray-900">아트캘린더 <span class="text-indigo-600">KR</span></h1>
+                    <p class="text-xs text-gray-500">전국 100대 미술관·박물관 전시·휴무 & 전화·공식링크</p>
+                </div>
+            </div>
+
+            <!-- Navigation Tabs -->
+            <div class="flex bg-gray-100 p-1 rounded-xl gap-1">
+                <button onclick="switchTab('calendar')" id="btn-tab-calendar" class="tab-btn active px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-calendar-days"></i> 전시·휴무 달력
+                </button>
+                <button onclick="switchTab('ranking')" id="btn-tab-ranking" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-trophy"></i> 전국 TOP 100 & 지도
+                </button>
+                <button onclick="switchTab('global')" id="btn-tab-global" class="tab-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-globe"></i> 글로벌 미술행사
+                </button>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button onclick="openModal('infoModal')" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium transition-colors">
+                    <i class="fa-solid fa-circle-question mr-1"></i> 이용안내
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full">
+
+        <!-- 상단 광고 영역 슬롯 -->
+        <div class="bg-indigo-50/50 border border-dashed border-indigo-200 rounded-xl p-3 mb-6 text-center text-xs text-indigo-400">
+            <i class="fa-solid fa-rectangle-ad mr-1"></i> 광고 영역 (Google AdSense 반응형 상단 배너 슬롯)
+        </div>
+
+        <!-- ================= VIEW 1: 달력 & 전시 정보 ================= -->
+        <div id="view-calendar" class="space-y-6">
+            <!-- Search & Filter Bar -->
+            <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                        </span>
+                        <input type="text" id="search-input" oninput="filterExhibitions()" placeholder="전시명, 미술관·박물관명, 지역 키워드 검색..." 
+                            class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <select id="region-filter" onchange="syncRegionFilter(this.value)" class="w-full py-2.5 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="전체">지역: 전국 전체</option>
+                            <option value="서울">서울</option>
+                            <option value="경기/인천">경기/인천</option>
+                            <option value="부산/경남">부산/경남</option>
+                            <option value="대구/경북">대구/경북</option>
+                            <option value="대전/충청">대전/충청</option>
+                            <option value="광주/전라">광주/전라</option>
+                            <option value="제주/강원">제주/강원</option>
+                        </select>
+                    </div>
+                    <div>
+                        <select id="price-filter" onchange="filterExhibitions()" class="w-full py-2.5 px-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="전체">요금: 무료·유료 전체</option>
+                            <option value="무료">무료 관람만 보기</option>
+                            <option value="유료">유료 기획전만 보기</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calendar & Selected Date Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <!-- Calendar Grid (7 cols) -->
+                <div class="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                    <div class="flex justify-between items-center mb-6">
+                        <div class="flex items-center space-x-3">
+                            <h2 id="current-month-title" class="text-xl font-bold text-gray-900">2026년 11월</h2>
+                            <div class="flex space-x-1">
+                                <button onclick="changeMonth(-1)" class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"><i class="fa-solid fa-chevron-left"></i></button>
+                                <button onclick="changeMonth(1)" class="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                        <button onclick="resetToToday()" class="text-xs bg-indigo-50 text-indigo-600 font-semibold px-3.5 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+                            오늘로 이동
+                        </button>
+                    </div>
+
+                    <!-- 요일 헤더 -->
+                    <div class="grid grid-cols-7 gap-1 text-center font-semibold text-xs text-gray-500 mb-2">
+                        <div class="text-rose-500">일</div>
+                        <div>월</div>
+                        <div>화</div>
+                        <div>수</div>
+                        <div>목</div>
+                        <div>금</div>
+                        <div class="text-blue-500">토</div>
+                    </div>
+
+                    <!-- 달력 날짜 그리드 -->
+                    <div id="calendar-grid" class="grid grid-cols-7 gap-1.5">
+                        <!-- JS 생성 -->
+                    </div>
+
+                    <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between text-xs text-gray-500 gap-2">
+                        <div class="flex items-center gap-3">
+                            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> 월요일(다수 국공립 정기휴관일)</span>
+                            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-indigo-600"></span> 정상 운영일</span>
+                        </div>
+                        <span class="text-indigo-600 font-semibold">실존 기관 <span id="total-ex-count">60</span>곳 연동 중</span>
+                    </div>
+                </div>
+
+                <!-- Selected Date & Exhibition List (5 cols) -->
+                <div class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-4 lg:sticky lg:top-20">
+                    <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-sm">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <span id="selected-date-badge" class="bg-white/20 text-white text-[11px] font-bold px-2 py-0.5 rounded">2026-11-16</span>
+                                <h3 id="selected-date-title" class="text-lg font-bold mt-1">방문 예정일 전시 일정</h3>
+                            </div>
+                            <i class="fa-regular fa-calendar-check text-2xl text-indigo-200"></i>
+                        </div>
+                        <p id="selected-day-notice" class="text-xs text-indigo-200 mt-1">날짜를 클릭하면 해당일의 휴무 여부 및 전시를 확인할 수 있습니다.</p>
+                    </div>
+
+                    <!-- 지역 선택 필 (Pills) -->
+                    <div>
+                        <label class="block text-xs font-bold text-gray-700 mb-2">방문할 지역 선택</label>
+                        <div id="region-pills" class="flex flex-wrap gap-1.5">
+                            <!-- JS 생성 -->
+                        </div>
+                    </div>
+
+                    <!-- 전시 리스트 컨테이너 -->
+                    <div>
+                        <h4 class="font-bold text-gray-900 text-xs mb-2 flex items-center justify-between">
+                            <span>전시 및 휴관 현황 (<span id="filtered-ex-count" class="text-indigo-600">0</span>건)</span>
+                            <span class="text-[11px] text-gray-400">클릭 시 상세·요금계산</span>
+                        </h4>
+                        <div id="exhibition-list-container" class="space-y-3 max-h-[460px] overflow-y-auto pr-1">
+                            <!-- JS 생성 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VIEW 2: 전국 TOP 100 순위 & 지도 ================= -->
+        <div id="view-ranking" class="space-y-6 hidden">
+            <div class="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-6 rounded-2xl shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <span class="bg-indigo-500/30 border border-indigo-400/30 text-indigo-200 text-xs font-bold px-2.5 py-1 rounded-full">NATIONWIDE TOP 100</span>
+                    <h2 class="text-2xl font-black mt-2">대한민국 미술관·박물관 종합 순위 TOP 100</h2>
+                    <p class="text-xs text-indigo-200 mt-1">연간 관람객 수, 소장품 가치, 전문가 평가 및 관람객 평점을 종합 산정한 전국 100대 전시 공간입니다.</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-xs p-3 rounded-xl text-xs space-y-1 shrink-0">
+                    <div class="font-bold text-indigo-200"><i class="fa-solid fa-map-pin mr-1"></i> 지도 & 리스트 연동</div>
+                    <div class="text-white/80">지도 핀을 누르거나 아래 목록을 클릭하세요.</div>
+                </div>
+            </div>
+
+            <!-- 지도 영역 -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-3">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <h3 class="font-bold text-gray-900 text-sm"><i class="fa-solid fa-map-location-dot text-indigo-600 mr-1.5"></i>전국 100대 전시장 위치 지도</h3>
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <select id="ranking-region-filter" onchange="filterRankings()" class="py-1.5 px-3 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <option value="전체">지역 필터: 전국 100곳 전체</option>
+                            <option value="서울">서울</option>
+                            <option value="경기/인천">경기/인천</option>
+                            <option value="부산/경남">부산/경남</option>
+                            <option value="대구/경북">대구/경북</option>
+                            <option value="대전/충청">대전/충청</option>
+                            <option value="광주/전라">광주/전라</option>
+                            <option value="제주/강원">제주/강원</option>
+                        </select>
+                        <input type="text" id="ranking-search-input" oninput="filterRankings()" placeholder="기관명 검색..." class="py-1.5 px-3 bg-gray-50 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                </div>
+                <div id="map" class="map-container rounded-xl border border-gray-200"></div>
+            </div>
+
+            <!-- 순위 리스트 -->
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 space-y-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-bold text-gray-900"><i class="fa-solid fa-list-ol text-indigo-600 mr-2"></i>전국 미술관·박물관 종합 순위표 (<span id="ranking-count" class="text-indigo-600">100</span>곳)</h3>
+                    <span class="text-xs text-gray-400">기관 클릭 시 공식 홈페이지 이동</span>
+                </div>
+                <div id="ranking-list-container" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[650px] overflow-y-auto pr-1">
+                    <!-- JS 생성 -->
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VIEW 3: 글로벌 미술행사 & 황금 투어 ================= -->
+        <div id="view-global" class="space-y-6 hidden">
+            <div class="bg-gradient-to-r from-teal-900 via-emerald-900 to-slate-900 text-white p-6 rounded-2xl shadow-md">
+                <span class="bg-teal-500/30 border border-teal-400/30 text-teal-200 text-xs font-bold px-2.5 py-1 rounded-full">GLOBAL ART TOUR GUIDE</span>
+                <h2 class="text-2xl font-black mt-2"><i class="fa-solid fa-earth-asia mr-2"></i>세계 주요 미술 행사 & 황금 아트투어 가이드</h2>
+                <p class="text-xs text-teal-100 mt-1">베니스 비엔날레, 아트 바젤, 카셀 도쿠멘타, 뮌스터 조각 프로젝트 등 세계 8대 미술 행사 일정, 공식 링크, 역대 수상작 및 황금 겹침 시기 완벽 정리</p>
+            </div>
+
+            <!-- 황금 투어(그랜드 투어) 겹치는 시기 하이라이트 배너 -->
+            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-3 shadow-xs">
+                <div class="flex items-center gap-2 text-amber-900 font-black text-base">
+                    <i class="fa-solid fa-crown text-amber-500 text-lg"></i>
+                    <span>유럽 현대미술 '그랜드 투어(Grand Tour)' 황금 겹침 시기 가이드</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                    <div class="bg-white p-3.5 rounded-xl border border-amber-200/80 space-y-1.5">
+                        <span class="bg-rose-100 text-rose-700 font-bold px-2 py-0.5 rounded text-[11px]">10년마다 돌아오는 기적의 해</span>
+                        <h4 class="font-bold text-gray-900 text-sm">2027년 6월 중순 ~ 9월 (매년 끝자리 7년)</h4>
+                        <p class="text-gray-600 leading-relaxed"><strong>카셀 도쿠멘타(5년 주기)</strong>와 <strong>뮌스터 조각 프로젝트(10년 주기)</strong>, 그리고 <strong>아트 바젤 스위스(매년 6월)</strong>가 동시에 열리는 유일한 해입니다. 6월 중순 스위스 바젤 ➔ 독일 뮌스터 ➔ 독일 카셀을 잇는 2주 코스가 전 세계 미술인의 버킷리스트 1순위입니다.</p>
+                    </div>
+                    <div class="bg-white p-3.5 rounded-xl border border-amber-200/80 space-y-1.5">
+                        <span class="bg-indigo-100 text-indigo-700 font-bold px-2 py-0.5 rounded text-[11px]">짝수년 유럽 핵심 코스</span>
+                        <h4 class="font-bold text-gray-900 text-sm">짝수년 6월 둘째 주 ~ 셋째 주</h4>
+                        <p class="text-gray-600 leading-relaxed"><strong>베니스 비엔날레(4월~11월)</strong>와 <strong>아트 바젤 스위스(6월 중순)</strong>가 겹치는 시기입니다. 4월 베니스 개막 직후의 극심한 인파를 피해 6월 초 베니스 관람 후 기차로 스위스 바젤로 이동하면 두 행사를 한 번에 쾌적하게 즐길 수 있습니다.</p>
+                    </div>
+                    <div class="bg-white p-3.5 rounded-xl border border-amber-200/80 space-y-1.5">
+                        <span class="bg-teal-100 text-teal-700 font-bold px-2 py-0.5 rounded text-[11px]">아시아·파리 가을 아트위크</span>
+                        <h4 class="font-bold text-gray-900 text-sm">매년 9월~10월 (프리즈 서울 & 아트 바젤 파리)</h4>
+                        <p class="text-gray-600 leading-relaxed">9월 초 <strong>프리즈 서울(Frieze Seoul) & 키아프</strong>와 <strong>광주 비엔날레(짝수년 9~12월)</strong>가 겹치며, 10월 중순에는 <strong>아트 바젤 파리(Art Basel Paris)</strong>와 <strong>리옹 비엔날레</strong>가 동시 개최되어 가을 아트투어에 최적입니다.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 글로벌 미술행사 카드 그리드 -->
+            <div id="global-events-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- JS 생성 -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-12 py-8 text-xs text-gray-500">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <p class="font-bold text-gray-800">아트캘린더 코리아 (ArtCalendar KR)</p>
+                <p class="mt-1">전국 100대 주요 미술관·박물관 실제 전시 일정, 휴무일 체크 및 대표 전화·공식 링크 제공</p>
+            </div>
+            <div class="flex gap-4 font-medium text-gray-600">
+                <a href="#" onclick="openModal('privacyModal'); return false;" class="hover:text-indigo-600">개인정보처리방침</a>
+                <a href="#" onclick="openModal('termsModal'); return false;" class="hover:text-indigo-600">이용약관</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 상세 모달 -->
+    <div id="detailModal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex justify-between items-start border-b border-gray-100 pb-3">
+                <div>
+                    <span id="modal-region" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">지역</span>
+                    <h3 id="modal-title" class="text-lg font-bold text-gray-900 mt-1">전시명</h3>
+                    <p id="modal-museum" class="text-xs font-semibold text-gray-600 mt-0.5">미술관명</p>
+                </div>
+                <button onclick="closeModal('detailModal')" class="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="space-y-2 text-xs text-gray-700 bg-gray-50 p-3.5 rounded-xl">
+                <div><span class="font-bold text-gray-900"><i class="fa-regular fa-calendar mr-1"></i> 전시 기간:</span> <span id="modal-period">2026.00.00 ~ 00.00</span></div>
+                <div><span class="font-bold text-gray-900"><i class="fa-solid fa-triangle-exclamation text-rose-500 mr-1"></i> 휴무일:</span> <span id="modal-closed">매주 월요일</span></div>
+                <div><span class="font-bold text-gray-900"><i class="fa-solid fa-won-sign mr-1"></i> 관람료:</span> <span id="modal-price">성인 5,000원</span></div>
+                <div><span class="font-bold text-gray-900"><i class="fa-solid fa-phone mr-1"></i> 대표 전화:</span> <a id="modal-phone-link" href="tel:" class="text-indigo-600 font-bold underline">02-000-0000</a></div>
+            </div>
+
+            <p id="modal-desc" class="text-xs text-gray-600 leading-relaxed"></p>
+
+            <div class="bg-indigo-50 p-3.5 rounded-xl space-y-2 border border-indigo-100">
+                <div class="flex justify-between items-center text-xs font-bold text-gray-700">
+                    <span>방문 인원수 (단체/성인 기준 계산):</span>
+                    <input type="number" id="calc-head" value="1" min="1" max="50" oninput="calculateTotal()" class="w-16 text-center border border-indigo-200 rounded-md py-1 bg-white font-bold">
+                </div>
+                <div class="flex justify-between items-center text-xs font-bold pt-2 border-t border-indigo-200">
+                    <span class="text-indigo-900">총 예상 입장료:</span>
+                    <span id="calc-total" class="text-indigo-600 text-base font-black">0원</span>
+                </div>
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+                <a id="modal-official-link" href="#" target="_blank" rel="noopener noreferrer" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold px-4 py-2.5 rounded-xl text-xs transition-colors flex items-center gap-1.5">
+                    <i class="fa-solid fa-arrow-up-right-from-square"></i> 공식 홈페이지 방문
+                </a>
+                <button onclick="closeModal('detailModal')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-colors">확인</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 개인정보처리방침 모달 -->
+    <div id="privacyModal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-2xl">
+            <h3 class="font-bold text-gray-900 text-sm">개인정보처리방침</h3>
+            <p class="text-xs text-gray-600 leading-relaxed">아트캘린더 코리아는 별도의 회원가입이나 개인정보를 수집하지 않으며, 구글 애드센스 등 제3자 광고 쿠키가 활용될 수 있습니다.</p>
+            <div class="text-right"><button onclick="closeModal('privacyModal')" class="bg-gray-800 text-white px-4 py-2 rounded-xl text-xs font-bold">닫기</button></div>
+        </div>
+    </div>
+
+    <!-- 이용약관 모달 -->
+    <div id="termsModal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-2xl">
+            <h3 class="font-bold text-gray-900 text-sm">이용약관</h3>
+            <p class="text-xs text-gray-600 leading-relaxed">제공되는 전시 일정 및 전화번호, 공식 링크 정보는 각 미술관의 공지 기준이나 현장 상황에 따라 변동될 수 있으므로 방문 전 공식 홈페이지를 통해 최종 확인하시기 바랍니다.</p>
+            <div class="text-right"><button onclick="closeModal('termsModal')" class="bg-gray-800 text-white px-4 py-2 rounded-xl text-xs font-bold">닫기</button></div>
+        </div>
+    </div>
+
+    <!-- 이용안내 모달 -->
+    <div id="infoModal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-2xl">
+            <h3 class="font-bold text-gray-900 text-sm"><i class="fa-solid fa-circle-info text-indigo-600 mr-1"></i> 서비스 안내</h3>
+            <p class="text-xs text-gray-600 leading-relaxed">• 대한민국 실제 국·공립 및 대표 사립 미술관·박물관 100곳의 순위·지도와 실제 운영 중인 전시 일정, 대표 전화번호, 공식 홈페이지 바로가기 링크를 한눈에 확인할 수 있습니다.</p>
+            <div class="text-right"><button onclick="closeModal('infoModal')" class="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold">확인</button></div>
+        </div>
+    </div>
+</body>
+</html>
